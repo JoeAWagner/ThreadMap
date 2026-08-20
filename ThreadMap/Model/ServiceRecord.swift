@@ -15,6 +15,10 @@ enum ServiceType: String, CaseIterable, Codable, Sendable {
     case matter      = "_matter._tcp"
     /// Matter device in commissioning mode (not yet paired).
     case matterC     = "_matterc._udp"
+    /// A Matter *commissioner* advertising that it can add devices to a fabric —
+    /// an Apple TV, a Nest Hub, an Echo. Seeing one you don't recognise means
+    /// something on your network is offering to commission your devices.
+    case matterD     = "_matterd._udp"
     /// HomeKit accessory over Thread (HAP-over-CoAP/UDP).
     case hapThread   = "_hap._udp"
     /// HomeKit accessory over Wi-Fi/Ethernet (HAP-over-IP/TCP).
@@ -37,6 +41,16 @@ enum ServiceType: String, CaseIterable, Codable, Sendable {
     case homeKitSetup  = "_homekit._tcp"
     case hue           = "_hue._tcp"
     case esphome       = "_esphomelib._tcp"
+    /// Cast groups and zones.
+    case googlezone    = "_googlezone._tcp"
+    case androidTV     = "_androidtvremote2._tcp"
+    /// Amazon Whisperplay — Fire TV and friends.
+    case amazonWPlay   = "_amzn-wplay._tcp"
+    case amazonEcho    = "_amazonecho-remote._tcp"
+    case sonos         = "_sonos._tcp"
+    case spotify       = "_spotify-connect._tcp"
+    case nanoleaf      = "_nanoleafapi._tcp"
+    case shelly        = "_shelly._tcp"
 
     var displayName: String {
         switch self {
@@ -45,6 +59,7 @@ enum ServiceType: String, CaseIterable, Codable, Sendable {
         case .trel:          "Thread Radio Link"
         case .matter:        "Matter node"
         case .matterC:       "Matter (commissionable)"
+        case .matterD:       "Matter commissioner"
         case .hapThread:     "HomeKit over Thread"
         case .hapIP:         "HomeKit over IP"
         case .deviceInfo:    "Device info"
@@ -55,6 +70,14 @@ enum ServiceType: String, CaseIterable, Codable, Sendable {
         case .homeKitSetup:  "HomeKit setup"
         case .hue:           "Philips Hue bridge"
         case .esphome:       "ESPHome"
+        case .googlezone:    "Google Cast zone"
+        case .androidTV:     "Android TV / Google TV"
+        case .amazonWPlay:   "Amazon Fire device"
+        case .amazonEcho:    "Amazon Echo"
+        case .sonos:         "Sonos"
+        case .spotify:       "Spotify Connect"
+        case .nanoleaf:      "Nanoleaf"
+        case .shelly:        "Shelly"
         }
     }
 
@@ -65,8 +88,14 @@ enum ServiceType: String, CaseIterable, Codable, Sendable {
     /// Types used only to put a human-readable name on hardware we found some
     /// other way. They never create a node on the map by themselves.
     static var contextTypes: [ServiceType] {
-        [.deviceInfo, .airplay, .raop, .companionLink, .googlecast, .homeKitSetup, .hue, .esphome]
+        [.deviceInfo, .airplay, .raop, .companionLink, .googlecast, .homeKitSetup,
+         .hue, .esphome, .googlezone, .androidTV, .amazonWPlay, .amazonEcho,
+         .sonos, .spotify, .nanoleaf, .shelly]
     }
+
+    /// Types that indicate the advertiser can commission devices onto a Matter
+    /// fabric. Not a device on the map, but worth knowing about.
+    static var commissionerTypes: [ServiceType] { [.matterD] }
 }
 
 /// One resolved mDNS service instance, straight off the wire.

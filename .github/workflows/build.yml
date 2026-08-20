@@ -29,24 +29,19 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      # Any available iPhone simulator will do for unit tests. Kept as plain
+      # shell: an inline python heredoc inside a YAML block scalar has to stay
+      # indented past the `run:` key, and silently breaks the file if it isn't.
       - name: Pick an available iOS simulator
         id: sim
         run: |
-          UDID=$(xcrun simctl list devices available --json | python3 -c '
-import json, sys
-devices = json.load(sys.stdin)["devices"]
-# Newest iOS runtime first, and prefer an iPhone over an iPad.
-for runtime in sorted(devices, reverse=True):
-    if "iOS" not in runtime:
-        continue
-    for device in devices[runtime]:
-        if device.get("isAvailable") and "iPhone" in device["name"]:
-            print(device["udid"])
-            raise SystemExit
-print("")
-')
+          UDID=$(xcrun simctl list devices available \
+            | grep 'iPhone' \
+            | grep -oE '[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}' \
+            | head -1)
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
           echo "Using simulator: ${UDID:-none found}"
+          xcrun simctl list devices available | head -30
 
       # Simulator builds skip code signing entirely, so the HomeKit, Thread and
       # multicast entitlements don't need a provisioning profile in CI.
