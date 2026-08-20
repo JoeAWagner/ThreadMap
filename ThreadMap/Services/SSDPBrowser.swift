@@ -71,7 +71,9 @@ actor SSDPBrowser {
         try? await Task.sleep(for: .seconds(duration))
         connectionGroup.cancel()
 
-        var (devices, failure) = collector.snapshot()
+        let collected = collector.snapshot()
+        var devices = collected.0
+        let failure = collected.1
 
         if resolveDescriptions {
             devices = await withTaskGroup(of: UPnPDevice.self, returning: [UPnPDevice].self) { group in

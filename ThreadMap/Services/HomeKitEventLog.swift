@@ -109,8 +109,9 @@ final class HomeKitEventLog {
     // MARK: - Recording
 
     private func record(accessory: HMAccessory, service: HMService, characteristic: HMCharacteristic) {
-        let identity = accessoryIndex[ObjectIdentifier(accessory)]
-            ?? (accessory.uniqueIdentifier, accessory.name, accessory.room?.name)
+        let identity: (id: UUID, name: String, room: String?) =
+            accessoryIndex[ObjectIdentifier(accessory)]
+            ?? (id: accessory.uniqueIdentifier, name: accessory.name, room: accessory.room?.name)
 
         let rendered = Self.render(characteristic)
         let key = "\(identity.id.uuidString)|\(characteristic.uniqueIdentifier.uuidString)"

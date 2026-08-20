@@ -77,7 +77,7 @@ struct PostureAuditor {
                 detail: described.joined(separator: ", ") + ".",
                 impact: "Each fabric a device belongs to is a separate controller with full authority over it — it can read state, actuate it, and remove it. Matter is designed to allow this, and it's how you use one lock from both Apple Home and Google Home. It also means revoking one ecosystem's access doesn't revoke another's.",
                 remediation: "Review the shared devices in each ecosystem's app and remove any pairing you don't use.",
-                subjects: shared.map(\.device.displayName),
+                subjects: shared.map { $0.device.displayName },
                 evidence: "Several _matter._tcp instance names with different compressed fabric IDs resolving to the same host."
             )
         ]
