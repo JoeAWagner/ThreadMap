@@ -4,10 +4,8 @@ An iPhone app that discovers the **Thread border routers** on your home network,
 the **Thread and HomeKit devices** behind them, and draws the relationship
 between the two.
 
-> **Status:** complete source, never compiled. It was written in a Linux
-> container with no Swift toolchain, so treat the first `xcodegen && build` as
-> the real smoke test. Two SDK details flagged in
-> [Before you build](#before-you-build) are the likeliest places it trips.
+> **Status:** builds and tests in CI on every push. Never run against real
+> hardware — see [Verified vs. not](#verified-vs-not).
 
 ---
 
@@ -36,6 +34,9 @@ draws you a line from a light bulb to a specific HomePod, it made that line up.
 | `_hap._udp` mDNS | HomeKit accessories on Thread. HAP-over-CoAP is *only* used on Thread, so this is proof of Thread membership, not a guess |
 | `_matter._tcp` / `_matterc._udp` mDNS | Matter nodes, their node ID, vendor/product, and sleepy-device (ICD) profile |
 | `_trel._udp` mDNS | Routers that support Thread Radio Encapsulation Link |
+| `_matterd._udp` mDNS | Matter *commissioners* — anything offering to add devices to a fabric |
+| SSDP / UPnP | An entirely separate discovery plane: Sonos, Roku, Wemo, smart TVs, printers, NAS — hardware that never appears in Bonjour at all |
+| `_matter._tcp` instance names | The compressed fabric ID, which reveals **how many parties can control each device** |
 | `ThreadNetwork.framework` | Names, channels and PAN IDs of Thread networks stored on *this iPhone* |
 | `HomeKit.framework` | Your homes, rooms, accessory names, manufacturers, models, reachability, and — for Matter accessories — the `matterNodeID` |
 | `_services._dns-sd._udp` meta-query | Every service *type* advertised on the link, including ones this app doesn't inspect — so you find things you didn't know to look for |
@@ -88,6 +89,23 @@ a map that silently guesses is worse than no map.
 
 ---
 
+## Matter fabric visibility
+
+A Matter device can be commissioned into several fabrics at once — Apple's,
+Google's, Amazon's, Home Assistant's — and **every fabric holder has full
+control of it**: read state, actuate, remove. Revoking one ecosystem's access
+does not revoke another's.
+
+Nothing shows you this, but the operational mDNS instance name is formatted
+`<compressedFabricID>-<nodeID>`, so the fabric each device belongs to is in
+plain sight. Group by it and you get "11 Matter devices across 3 fabrics", with
+the shared devices called out. A fabric you can't account for is worth
+investigating.
+
+The one fabric that can be *named* is Apple's, identified because HomeKit told
+us about its devices. The rest are anonymous by design — Matter deliberately
+doesn't broadcast which ecosystem an admin belongs to.
+
 ## What it tells you
 
 **Map** — networks, their border routers, their devices. Pinch, pan, tap.
@@ -117,6 +135,19 @@ so a few thermometers don't bury everything else.
 
 **Diagnostics** — raw records, every service type found on the link, and the
 scope note. Everything the app claims is derived from what's on this screen.
+
+### Two discovery planes
+
+Everything above is mDNS. SSDP/UPnP is a different protocol on a different
+multicast group, and a large amount of consumer hardware only announces there —
+adding it roughly doubles what the app sees on a typical home network. Where a
+device appears on both (a Sonos speaker is a Matter device *and* a UPnP
+MediaRenderer), the UPnP description usually wins on naming, because it's the
+one the manufacturer wrote for humans.
+
+It also produces a finding worth having: a router advertising an **Internet
+Gateway Device** service means UPnP port mapping is on, and any device on your
+LAN can open an inbound firewall hole without prompting you.
 
 ### Scan depth is a real setting
 
@@ -154,20 +185,43 @@ surfaces border routers, and HomeKit in the Simulator is a stub. A scan on the
 Simulator returns approximately nothing. Use hardware, on Wi-Fi, on the same
 VLAN as your hubs — not cellular, not a guest network with client isolation.
 
-### Before you build
+### CI
 
-Two API details were written from documentation and could not be checked
-against a real SDK here. If the build fails, look at these first:
+`.github/workflows/build.yml` builds for the Simulator and runs the tests on
+every push, summarising errors and warnings into the job summary because raw
+`xcodebuild` output buries them. Simulator builds skip signing, so the
+entitlements need no provisioning profile.
+
+`ThreadNetwork.framework` **is not in the Simulator SDK**, so it sits behind
+`#if canImport(ThreadNetwork)`. That keeps the whole app buildable and
+previewable in the Simulator; the credentials service simply reports the
+feature as unavailable there. Don't add it as an explicit link dependency —
+Swift autolinks what it imports, and an unconditional link breaks the Simulator
+build.
+
+### Verified vs. not
+
+CI compiles it and the tests pin the parsing and correlation logic. What no
+test can confirm is behaviour against real hardware — **nobody has run this
+against a live Thread network yet.** Treat these as open:
 
 1. **`THClient.retrieveAllActiveCredentials()`**
    (`Services/ThreadCredentialsService.swift`). Some SDK versions spell the bulk
-   accessor `retrieveAllCredentials()`. If the selector doesn't resolve, swap it
-   — the return type and use site are unchanged.
+   accessor `retrieveAllCredentials()`.
 2. **`THCredentials` optionality.** The service assumes `extendedPANID`,
    `borderAgentID` and `panID` are `Data?` and uses `.map(hex)`. If your SDK
-   declares them non-optional, drop the `.map` and call `hex(...)` directly.
+   declares them non-optional, drop the `.map`.
+3. **The MeshCoP `sb` bitmap offsets** came from documentation. A wrong offset
+   would mislabel every router's role with no visible symptom, so
+   `MeshcopRecordTests` pins the layout in one asserted place — if a real router
+   disagrees, that's the single thing to change.
+4. **Service type names for eero, Ring, SmartThings and Nest's Weave-era
+   services were deliberately left out.** An invented service type fails
+   *silently* — it just returns nothing. Use the meta-query on the Diagnostics
+   tab to see what's genuinely advertising on your network, then add it.
 
-Neither affects anything but network *naming* — see the entitlement note below.
+Neither 1 nor 2 affects anything but network *naming* — see the entitlement
+note below.
 
 ### Entitlements
 
