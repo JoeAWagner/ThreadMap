@@ -33,7 +33,12 @@ struct ThreadNetwork: Identifiable, Hashable, Codable, Sendable {
 struct BorderRouter: Identifiable, Hashable, Codable, Sendable {
     /// Border agent ID when present, otherwise the service instance name.
     let id: String
+    /// What we show. May be borrowed from another service the same host
+    /// publishes — see `TopologyBuilder.nameBorderRouters`.
     var displayName: String
+    /// The name the MeshCoP record itself advertised, kept verbatim. Often a
+    /// bare hex blob, which is exactly why `displayName` may differ.
+    var advertisedInstanceName: String = ""
     var vendorName: String?
     var modelName: String?
     var borderAgentID: String?
@@ -56,10 +61,25 @@ struct BorderRouter: Identifiable, Hashable, Codable, Sendable {
     var isPrimaryBackboneRouter: Bool { meshcop?.isPrimaryBackboneRouter == true }
     var isAttached: Bool { meshcop?.interfaceStatus == .active }
 
-    /// Vendor + model, e.g. "Apple Apple TV". Falls back to the instance name.
+    /// Vendor + model, e.g. "Apple Inc. Apple TV".
+    ///
+    /// Deliberately empty rather than falling back to `displayName`: this is
+    /// shown *beside* the name, so echoing it would just print the same string
+    /// twice. Callers treat empty as "nothing to add".
     var hardwareDescription: String {
-        let parts = [vendorName, modelName].compactMap { $0 }.filter { !$0.isEmpty }
-        return parts.isEmpty ? displayName : parts.joined(separator: " ")
+        [vendorName, modelName, deviceInfoModel]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .reduce(into: [String]()) { unique, part in
+                if !unique.contains(part) { unique.append(part) }
+            }
+            .joined(separator: " ")
+    }
+
+    /// True when the router is shown under a name borrowed from another
+    /// service, so the UI knows there's a second identity worth revealing.
+    var isShowingBorrowedName: Bool {
+        !advertisedInstanceName.isEmpty && displayName != advertisedInstanceName
     }
 }
 

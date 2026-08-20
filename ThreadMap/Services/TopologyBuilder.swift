@@ -44,6 +44,7 @@ struct TopologyBuilder {
         assignNetworks(to: &devices, networks: networks)
         enrichIdentities(routers: &routers, devices: &devices, contextRecords: contextRecords)
         enrichFromUPnP(routers: &routers, devices: &devices, upnpDevices: input.upnpDevices)
+        nameBorderRouters(&routers)
         applyProxyAttribution(devices: &devices, routers: routers, attribution: input.proxyAttribution)
         correlateHomeKit(devices: &devices, routers: &routers, accessories: input.accessories)
         nameDevices(&devices, accessories: input.accessories)
@@ -105,7 +106,9 @@ struct TopologyBuilder {
                 advertisedTypes: [.meshcop],
                 lastSeen: record.lastSeen
             )
-            router.displayName = Self.friendlyRouterName(record: record, meshcop: meshcop)
+            // Naming happens later, in `nameBorderRouters`: a better name may
+            // arrive from an AirPlay or Cast record we haven't seen yet.
+            router.advertisedInstanceName = record.instanceName
             routers.append(router)
         }
 
@@ -126,6 +129,7 @@ struct TopologyBuilder {
                     BorderRouter(
                         id: "instance:\(record.instanceName)",
                         displayName: record.instanceName,
+                        advertisedInstanceName: record.instanceName,
                         vendorName: nil,
                         modelName: nil,
                         borderAgentID: nil,
@@ -143,18 +147,10 @@ struct TopologyBuilder {
         return routers
     }
 
-    /// MeshCoP instance names are usually vendor-set and readable
-    /// (`Apple TV 1A2B`), but some routers publish a bare hex blob. Prefer
-    /// vendor + model when the instance name looks machine-generated.
-    private static func friendlyRouterName(record: ServiceRecord, meshcop: MeshcopRecord) -> String {
-        let instance = record.instanceName
-        let looksLikeHex = instance.count >= 12 && instance.allSatisfy { $0.isHexDigit || $0 == "-" }
-        if looksLikeHex {
-            let parts = [meshcop.vendorName, meshcop.modelName].compactMap { $0 }.filter { !$0.isEmpty }
-            if !parts.isEmpty { return parts.joined(separator: " ") }
-            if let host = record.hostname { return host.replacingOccurrences(of: ".local.", with: "") }
-        }
-        return instance
+    /// A name is machine-generated if it's a long run of hex — `A1B2C3D4E5F60718`
+    /// rather than `Living Room Apple TV`.
+    static func looksMachineGenerated(_ name: String) -> Bool {
+        name.count >= 12 && name.allSatisfy { $0.isHexDigit || $0 == "-" }
     }
 
     private func syntheticNetworkID(for record: ServiceRecord) -> String {
@@ -422,12 +418,48 @@ struct TopologyBuilder {
             }
         }
 
-        // Promote a good alternate name over an unhelpful MeshCoP instance name.
+    }
+
+    /// Decides what a border router is called, in priority order.
+    ///
+    /// The ordering is about *which box in your house is this*, not which
+    /// string is most technically precise. A vendor + model pair is accurate
+    /// and useless when you own three Apple TVs; the AirPlay or Cast name is
+    /// the one you chose, so it wins over generic hardware strings. Vendor and
+    /// model are never discarded — they ride along in `hardwareDescription`
+    /// and get their own rows in the detail sheet.
+    private func nameBorderRouters(_ routers: inout [BorderRouter]) {
         for index in routers.indices {
-            let current = routers[index].displayName
-            let unhelpful = current.count >= 12 && current.allSatisfy { $0.isHexDigit || $0 == "-" }
-            if unhelpful, let better = routers[index].alternateNames.first {
-                routers[index].displayName = better
+            let router = routers[index]
+
+            // 1. A readable MeshCoP name is the router describing itself, and
+            //    vendors that bother to set one usually set a good one.
+            if !router.advertisedInstanceName.isEmpty,
+               !Self.looksMachineGenerated(router.advertisedInstanceName) {
+                routers[index].displayName = router.advertisedInstanceName
+                continue
+            }
+
+            // 2. A name the user chose, borrowed from AirPlay, Cast or UPnP.
+            if let borrowed = router.alternateNames.first(where: { !$0.isEmpty }) {
+                routers[index].displayName = borrowed
+                continue
+            }
+
+            // 3. Generic but true.
+            let hardware = router.hardwareDescription
+            if !hardware.isEmpty {
+                routers[index].displayName = hardware
+                continue
+            }
+
+            // 4. Last resort: the hostname, then whatever it advertised.
+            if let host = router.hostname, !host.isEmpty {
+                routers[index].displayName = host
+                    .replacingOccurrences(of: ".local.", with: "")
+                    .replacingOccurrences(of: ".local", with: "")
+            } else if !router.advertisedInstanceName.isEmpty {
+                routers[index].displayName = router.advertisedInstanceName
             }
         }
     }

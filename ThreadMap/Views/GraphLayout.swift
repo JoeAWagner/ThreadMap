@@ -197,8 +197,10 @@ enum GraphLayout {
     // MARK: - Node builders
 
     private static func routerNode(_ router: BorderRouter, at position: CGPoint, topology: Topology) -> GraphNode {
-        var subtitle = router.hardwareDescription
-        if let room = topology.accessory(router.homeKitAccessoryID)?.roomName {
+        // The node's label is the recognisable name; the caption carries the
+        // hardware it actually is, so both identities are on the map itself.
+        var subtitle: String? = router.hardwareDescription.isEmpty ? nil : router.hardwareDescription
+        if subtitle == nil, let room = topology.accessory(router.homeKitAccessoryID)?.roomName {
             subtitle = room
         }
         var badge: String?

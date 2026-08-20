@@ -91,11 +91,17 @@ final class TopologyBuilderTests: XCTestCase {
         XCTAssertTrue(router.isAttached)
         XCTAssertTrue(router.isPrimaryBackboneRouter)
         XCTAssertEqual(router.vendorName, "Apple Inc.")
+        XCTAssertEqual(router.hardwareDescription, "Apple Inc. Apple TV")
     }
 
-    /// A router whose MeshCoP instance name is a bare hex blob should be
-    /// renamed from a co-located AirPlay record.
-    func testContextRecordNamesAnAnonymousRouter() throws {
+    /// A router whose MeshCoP instance name is a bare hex blob gets its name
+    /// from a co-located AirPlay record — and keeps its hardware identity
+    /// alongside, rather than one replacing the other.
+    ///
+    /// Vendor + model is accurate and useless when you own three Apple TVs;
+    /// the AirPlay name is the one you chose. Both are shown, so neither is
+    /// lost.
+    func testContextRecordNamesAnAnonymousRouterAndKeepsHardware() throws {
         let topology = builder.build(.init(records: [
             Fixture.record(.meshcop, name: "A1B2C3D4E5F60718",
                            txt: Fixture.borderAgentTXT(),
@@ -105,8 +111,40 @@ final class TopologyBuilderTests: XCTestCase {
         ]))
 
         let router = try XCTUnwrap(topology.borderRouters.first)
-        XCTAssertEqual(router.displayName, "Kitchen HomePod")
+        XCTAssertEqual(router.displayName, "Kitchen HomePod", "the name you'd recognise wins")
+        XCTAssertEqual(router.hardwareDescription, "Apple Inc. Apple TV", "the hardware identity survives")
+        XCTAssertEqual(router.advertisedInstanceName, "A1B2C3D4E5F60718", "and so does what Thread actually said")
+        XCTAssertTrue(router.isShowingBorrowedName)
         XCTAssertTrue(router.alternateNames.contains("Kitchen HomePod"))
+    }
+
+    /// The reverse: a router that names itself readably keeps its own name.
+    /// Borrowing is a fallback, not a preference.
+    func testReadableMeshcopNameIsNotOverridden() throws {
+        let topology = builder.build(.init(records: [
+            Fixture.record(.meshcop, name: "Living Room Apple TV",
+                           txt: Fixture.borderAgentTXT(),
+                           addresses: ["192.168.1.10"], hostname: "hub.local."),
+            Fixture.record(.airplay, name: "Something Else",
+                           addresses: ["192.168.1.10"], hostname: "hub.local.")
+        ]))
+
+        let router = try XCTUnwrap(topology.borderRouters.first)
+        XCTAssertEqual(router.displayName, "Living Room Apple TV")
+        XCTAssertFalse(router.isShowingBorrowedName)
+    }
+
+    /// With no other service to borrow from, vendor + model is still better
+    /// than a hex blob.
+    func testFallsBackToVendorAndModelWithoutAContextRecord() throws {
+        let topology = builder.build(.init(records: [
+            Fixture.record(.meshcop, name: "A1B2C3D4E5F60718",
+                           txt: Fixture.borderAgentTXT(),
+                           addresses: ["192.168.1.10"], hostname: "hub.local.")
+        ]))
+
+        let router = try XCTUnwrap(topology.borderRouters.first)
+        XCTAssertEqual(router.displayName, "Apple Inc. Apple TV")
     }
 
     // MARK: - Identity

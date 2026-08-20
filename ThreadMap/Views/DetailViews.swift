@@ -108,11 +108,14 @@ struct RouterDetailView: View {
 
     var body: some View {
         List {
-            Section("Hardware") {
-                LabeledContent("Advertised name", value: router.displayName)
+            Section {
                 if let vendor = router.vendorName { LabeledContent("Vendor", value: vendor) }
                 if let model = router.modelName { LabeledContent("Model", value: model) }
                 if let model = router.deviceInfoModel { LabeledContent("Hardware model", value: model) }
+                if !router.advertisedInstanceName.isEmpty {
+                    LabeledContent("Thread advertises it as", value: router.advertisedInstanceName)
+                        .font(router.isShowingBorrowedName ? .system(.body, design: .monospaced) : .body)
+                }
                 if !router.alternateNames.isEmpty {
                     LabeledContent("Also advertises as", value: router.alternateNames.joined(separator: ", "))
                 }
@@ -121,6 +124,12 @@ struct RouterDetailView: View {
                     if let room = accessory.roomName { LabeledContent("Room", value: room) }
                 }
                 if let host = router.hostname { LabeledContent("Hostname", value: host) }
+            } header: {
+                Text("Hardware")
+            } footer: {
+                if router.isShowingBorrowedName {
+                    Text("This router is listed as \"\(router.displayName)\" because its own Thread advertisement names it \"\(router.advertisedInstanceName)\", which doesn't tell you which box it is. The name shown comes from another service the same host publishes.")
+                }
             }
 
             if let meshcop = router.meshcop {
@@ -429,7 +438,14 @@ struct RouterRow: View {
                 HStack(spacing: 6) {
                     if router.isLeader { Tag(text: "Leader", color: .orange) }
                     if router.isPrimaryBackboneRouter { Tag(text: "Primary BBR", color: .purple) }
-                    Text(router.hardwareDescription).font(.caption2).foregroundStyle(.secondary)
+                    // Both identities in the list: the name you'd recognise on
+                    // top, the hardware it actually is underneath.
+                    if !router.hardwareDescription.isEmpty {
+                        Text(router.hardwareDescription).font(.caption2).foregroundStyle(.secondary)
+                    }
+                    if let room = topology.accessory(router.homeKitAccessoryID)?.roomName {
+                        Text(room).font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
             }
         }
