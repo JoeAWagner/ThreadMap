@@ -1,5 +1,12 @@
 import Foundation
+
+// ThreadNetwork.framework ships only in the device SDK — it does not exist in
+// the iOS Simulator. Guarding the import keeps the whole app buildable and
+// previewable in the Simulator; the service just reports the feature as
+// unavailable there, the same way it does when the entitlement is missing.
+#if canImport(ThreadNetwork)
 import ThreadNetwork
+#endif
 
 /// Reads the Thread networks this iPhone already knows about.
 ///
@@ -32,10 +39,13 @@ struct ThreadCredentialsService {
 
     enum Failure: LocalizedError {
         case entitlementMissing
+        case unavailableOnThisPlatform
         case other(String)
 
         var errorDescription: String? {
             switch self {
+            case .unavailableOnThisPlatform:
+                "Stored Thread networks can't be read here — ThreadNetwork.framework isn't part of the iOS Simulator SDK. Run on a real device. Border router and device discovery work either way."
             case .entitlementMissing:
                 "This build can't read stored Thread credentials. That needs the com.apple.developer.networking.manage-thread-network-credentials entitlement, which Apple grants on request. Border routers and devices are still mapped without it — networks just show up unnamed."
             case .other(let message):
@@ -44,7 +54,9 @@ struct ThreadCredentialsService {
         }
     }
 
+    #if canImport(ThreadNetwork)
     private let client = THClient()
+    #endif
 
     /// All Thread networks stored on this device.
     ///
@@ -52,6 +64,9 @@ struct ThreadCredentialsService {
     /// and we degrade to whatever the border routers advertise, which is most
     /// of what the map needs anyway.
     func knownNetworks() async throws -> [KnownNetwork] {
+        #if !canImport(ThreadNetwork)
+        throw Failure.unavailableOnThisPlatform
+        #else
         do {
             let credentials = try await client.retrieveAllActiveCredentials()
             return credentials.map(Self.summarize).sorted {
@@ -60,21 +75,27 @@ struct ThreadCredentialsService {
         } catch {
             throw Self.classify(error)
         }
+        #endif
     }
 
     /// Asks the user to pick a network via the system sheet. This path works
     /// without the bulk-read entitlement, so it is the fallback we offer when
     /// `knownNetworks()` is refused.
     func preferredNetwork() async throws -> KnownNetwork {
+        #if !canImport(ThreadNetwork)
+        throw Failure.unavailableOnThisPlatform
+        #else
         do {
             return Self.summarize(try await client.retrievePreferredCredentials())
         } catch {
             throw Self.classify(error)
         }
+        #endif
     }
 
     // MARK: - Mapping
 
+    #if canImport(ThreadNetwork)
     /// Pulls only the non-secret fields across. Deliberately exhaustive so it is
     /// obvious at review time that no key material escapes this function.
     private static func summarize(_ credentials: THCredentials) -> KnownNetwork {
@@ -88,6 +109,8 @@ struct ThreadCredentialsService {
             lastModificationDate: credentials.lastModificationDate
         )
     }
+
+    #endif
 
     private static func hex(_ data: Data) -> String {
         data.map { String(format: "%02X", $0) }.joined()

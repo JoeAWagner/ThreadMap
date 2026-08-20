@@ -35,10 +35,10 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MACCATALYST: NO
         GENERATE_INFOPLIST_FILE: NO
-    dependencies:
-      - sdk: HomeKit.framework
-      - sdk: ThreadNetwork.framework
-      - sdk: Network.framework
+    # No explicit sdk dependencies: Swift autolinks the frameworks it imports,
+    # and listing ThreadNetwork.framework here would link it unconditionally —
+    # which fails in the Simulator, where that framework doesn't exist.
+    dependencies: []
     scheme:
       testTargets:
         - ThreadMapTests
