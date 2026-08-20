@@ -120,12 +120,14 @@ final class HomeKitService {
         waiters.forEach { $0.resume() }
     }
 
-    /// `matterNodeID` is an `NSNumber` holding a 64-bit node ID. The mDNS
-    /// instance name carries the same value as 16 uppercase hex digits, so
-    /// normalise to that form for comparison.
+    /// `matterNodeID` is a `UInt64?` — not the `NSNumber?` you might expect
+    /// from HomeKit's other numeric properties. The mDNS instance name carries
+    /// the same value as 16 uppercase hex digits, so normalise to that form for
+    /// comparison; this is the one exact join key between HomeKit's world and
+    /// the network's.
     private static func matterNodeHex(_ accessory: HMAccessory) -> String? {
         guard let node = accessory.matterNodeID else { return nil }
-        return String(format: "%016llX", node.uint64Value)
+        return String(format: "%016llX", node)
     }
 
     private static func categoryLabel(_ category: HMAccessoryCategory) -> String {
