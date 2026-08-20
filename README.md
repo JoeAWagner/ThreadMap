@@ -73,16 +73,18 @@ a map that silently guesses is worse than no map.
 ## Building it
 
 ```bash
-brew install xcodegen
+git clone https://github.com/JoeAWagner/ThreadMap.git
 cd ThreadMap
+brew install xcodegen
 xcodegen generate
 open ThreadMap.xcodeproj
 ```
 
-The `.xcodeproj` is generated from `project.yml` and deliberately not committed,
-so the file list can't drift from what's on disk. If you'd rather not use
-XcodeGen: make a new iOS App target in Xcode, drag in the `ThreadMap/` folder,
-and point Build Settings at `Info.plist` and `ThreadMap.entitlements`.
+The `.xcodeproj` is generated from `project.yml` at the repo root and
+deliberately not committed, so the file list can't drift from what's on disk. If
+you'd rather not use XcodeGen: make a new iOS App target in Xcode, drag in the
+`ThreadMap/` source folder, and point Build Settings at `ThreadMap/Info.plist`
+and `ThreadMap/ThreadMap.entitlements`.
 
 **Deployment target is iOS 17.0** (`@Observable`, `MagnifyGesture`,
 `ContentUnavailableView`).
