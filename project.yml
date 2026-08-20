@@ -1,5 +1,5 @@
 # XcodeGen spec. Regenerate the project with:
-#   brew install xcodegen && cd ThreadMap && xcodegen generate
+#   brew install xcodegen && xcodegen generate
 #
 # The .xcodeproj is intentionally not committed — it's generated output, and
 # generating it means the file list can't drift from what's on disk.
@@ -26,7 +26,10 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.ThreadMap
-        PRODUCT_NAME: Thread Map
+        # Kept identifier-safe so the Swift module is `ThreadMap` and tests can
+        # `@testable import ThreadMap`. The name on the home screen comes from
+        # CFBundleDisplayName in Info.plist instead.
+        PRODUCT_NAME: ThreadMap
         INFOPLIST_FILE: ThreadMap/Info.plist
         CODE_SIGN_ENTITLEMENTS: ThreadMap/ThreadMap.entitlements
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -36,3 +39,19 @@ targets:
       - sdk: HomeKit.framework
       - sdk: ThreadNetwork.framework
       - sdk: Network.framework
+    scheme:
+      testTargets:
+        - ThreadMapTests
+      gatherCoverageData: true
+
+  ThreadMapTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: ThreadMap
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.ThreadMapTests
+        GENERATE_INFOPLIST_FILE: YES

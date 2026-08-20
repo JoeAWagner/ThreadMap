@@ -1,0 +1,102 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Pick an available iOS simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available --json | python3 -c '
+import json, sys
+devices = json.load(sys.stdin)["devices"]
+# Newest iOS runtime first, and prefer an iPhone over an iPad.
+for runtime in sorted(devices, reverse=True):
+    if "iOS" not in runtime:
+        continue
+    for device in devices[runtime]:
+        if device.get("isAvailable") and "iPhone" in device["name"]:
+            print(device["udid"])
+            raise SystemExit
+print("")
+')
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "Using simulator: ${UDID:-none found}"
+
+      # Simulator builds skip code signing entirely, so the HomeKit, Thread and
+      # multicast entitlements don't need a provisioning profile in CI.
+      - name: Build
+        id: build
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ThreadMap.xcodeproj \
+            -scheme ThreadMap \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee build.log
+        continue-on-error: true
+
+      # xcodebuild's raw output buries the useful lines in thousands of others.
+      - name: Summarise diagnostics
+        if: always()
+        run: |
+          echo "### Errors" >> "$GITHUB_STEP_SUMMARY"
+          grep -E "error:" build.log | sed 's/^/    /' | sort -u | head -80 \
+            | tee -a "$GITHUB_STEP_SUMMARY" || echo "none"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Warnings" >> "$GITHUB_STEP_SUMMARY"
+          grep -E "warning:" build.log | sed 's/^/    /' | sort -u | head -40 \
+            | tee -a "$GITHUB_STEP_SUMMARY" || echo "none"
+
+      - name: Fail if the build failed
+        if: steps.build.outcome == 'failure'
+        run: exit 1
+
+      - name: Test
+        if: steps.build.outcome == 'success' && steps.sim.outputs.udid != ''
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project ThreadMap.xcodeproj \
+            -scheme ThreadMap \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee test.log | grep -E "Test Case|error:|failed|passed|Executed" || true
+          grep -q "TEST SUCCEEDED\|** TEST SUCCEEDED **" test.log
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            build.log
+            test.log
+          if-no-files-found: ignore
+          retention-days: 7
