@@ -19,6 +19,8 @@ struct TopologyBuilder {
         var proxyProbeNote: String?
         /// Everything the DNS-SD meta-query saw advertised on the link.
         var advertisedServiceTypes: Set<String> = []
+        /// Devices found over SSDP/UPnP.
+        var upnpDevices: [UPnPDevice] = []
     }
 
     func build(_ input: Input) -> Topology {
@@ -41,6 +43,7 @@ struct TopologyBuilder {
 
         assignNetworks(to: &devices, networks: networks)
         enrichIdentities(routers: &routers, devices: &devices, contextRecords: contextRecords)
+        enrichFromUPnP(routers: &routers, devices: &devices, upnpDevices: input.upnpDevices)
         applyProxyAttribution(devices: &devices, routers: routers, attribution: input.proxyAttribution)
         correlateHomeKit(devices: &devices, routers: &routers, accessories: input.accessories)
         nameDevices(&devices, accessories: input.accessories)
@@ -56,6 +59,7 @@ struct TopologyBuilder {
         topology.borderRouters = routers.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         topology.devices = devices.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         topology.unmatchedRecords = leftovers
+        topology.upnpDevices = input.upnpDevices
         topology.advertisedServiceTypes = input.advertisedServiceTypes.sorted()
         topology.proxyProbeNote = input.proxyProbeNote
         topology.generatedAt = .now
@@ -448,6 +452,35 @@ struct TopologyBuilder {
         let mine = Set(addresses.filter(\.isRoutable))
         let theirs = Set(record.routableAddresses)
         return !mine.isEmpty && !mine.isDisjoint(with: theirs)
+    }
+
+    /// SSDP and mDNS are separate planes, but a single box often lives on
+    /// both — a Sonos speaker is a Matter device and a UPnP MediaRenderer. When
+    /// the addresses line up, the UPnP description usually carries the better
+    /// name, because it's the one the manufacturer wrote for humans.
+    private func enrichFromUPnP(routers: inout [BorderRouter],
+                                devices: inout [MeshDevice],
+                                upnpDevices: [UPnPDevice]) {
+        guard !upnpDevices.isEmpty else { return }
+
+        for upnp in upnpDevices {
+            guard let address = upnp.address else { continue }
+            let name = upnp.displayName
+            guard !name.isEmpty else { continue }
+
+            for index in routers.indices where routers[index].addresses.contains(address) {
+                if !routers[index].alternateNames.contains(name) {
+                    routers[index].alternateNames.append(name)
+                }
+                if routers[index].deviceInfoModel == nil { routers[index].deviceInfoModel = upnp.modelName }
+            }
+
+            for index in devices.indices where devices[index].addresses.contains(address) {
+                let current = devices[index].displayName
+                let looksLikeHex = current.count >= 16 && current.allSatisfy { $0.isHexDigit || $0 == "-" }
+                if looksLikeHex { devices[index].displayName = name }
+            }
+        }
     }
 
     // MARK: - Proxy attribution

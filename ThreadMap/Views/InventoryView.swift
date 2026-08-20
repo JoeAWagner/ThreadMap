@@ -71,6 +71,58 @@ struct InventoryView: View {
                 }
             }
 
+            let fabrics = topology.matterFabrics
+            if !fabrics.isEmpty, query.isEmpty, filter == .all {
+                Section {
+                    ForEach(fabrics) { fabric in
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(fabric.displayName)
+                                Spacer()
+                                Text("\(fabric.deviceCount)").foregroundStyle(.secondary)
+                            }
+                            Text(fabric.deviceNames.prefix(4).joined(separator: ", ")
+                                 + (fabric.deviceCount > 4 ? ", …" : ""))
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("Matter fabrics (\(fabrics.count))")
+                } footer: {
+                    Text("A fabric is an administrative domain. Every fabric a device belongs to is a separate party that can read and control it — this is the only place that's visible.")
+                }
+            }
+
+            if !topology.upnpDevices.isEmpty, filter == .all {
+                let upnp = topology.upnpDevices.filter { device in
+                    query.isEmpty || [device.displayName, device.subtitle, device.deviceType ?? ""]
+                        .joined(separator: " ").localizedCaseInsensitiveContains(query)
+                }
+                if !upnp.isEmpty {
+                    Section {
+                        ForEach(upnp) { device in
+                            HStack(spacing: 12) {
+                                Image(systemName: device.symbolName)
+                                    .foregroundStyle(device.isInternetGateway ? .orange : .secondary)
+                                    .frame(width: 26)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(device.displayName)
+                                    HStack(spacing: 6) {
+                                        if device.isInternetGateway { Tag(text: "Port mapping", color: .orange) }
+                                        Text(device.subtitle.isEmpty ? (device.address?.text ?? "") : device.subtitle)
+                                            .font(.caption2).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    } header: {
+                        Text("UPnP devices (\(upnp.count))")
+                    } footer: {
+                        Text("Found over SSDP, not Bonjour. Sonos, Roku, Wemo, smart TVs and printers usually live only here.")
+                    }
+                }
+            }
+
             let unmatched = topology.accessories.filter { accessory in
                 !topology.devices.contains { $0.homeKitAccessoryID == accessory.id }
                     && !topology.borderRouters.contains { $0.homeKitAccessoryID == accessory.id }

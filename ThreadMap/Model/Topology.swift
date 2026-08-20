@@ -151,6 +151,9 @@ struct Topology: Hashable, Codable, Sendable {
     var accessories: [HomeKitAccessory] = []
     /// Service records we saw but could not place, kept for the raw view.
     var unmatchedRecords: [ServiceRecord] = []
+    /// Devices found over SSDP/UPnP — an entirely separate discovery plane from
+    /// mDNS, and where a lot of consumer hardware exclusively lives.
+    var upnpDevices: [UPnPDevice] = []
     /// Every service type the DNS-SD meta-query found on the link, including
     /// ones this app doesn't inspect.
     var advertisedServiceTypes: [String] = []

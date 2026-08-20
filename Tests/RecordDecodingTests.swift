@@ -78,3 +78,85 @@ final class HAPRecordTests: XCTestCase {
         XCTAssertEqual(record.deviceID, "AA:BB:CC:DD:EE:FF")
     }
 }
+
+final class UPnPDescriptionParserTests: XCTestCase {
+
+    /// A UPnP description can nest embedded devices whose names would otherwise
+    /// overwrite the root device's — the root is the one you actually want.
+    func testTakesRootDeviceNotEmbeddedOne() throws {
+        let xml = """
+        <?xml version="1.0"?>
+        <root xmlns="urn:schemas-upnp-org:device-1-0">
+          <device>
+            <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
+            <friendlyName>Living Room</friendlyName>
+            <manufacturer>Sonos, Inc.</manufacturer>
+            <modelName>Sonos One</modelName>
+            <UDN>uuid:RINCON-000E58</UDN>
+            <deviceList>
+              <device>
+                <friendlyName>Embedded Should Not Win</friendlyName>
+                <modelName>Embedded Model</modelName>
+              </device>
+            </deviceList>
+          </device>
+        </root>
+        """
+        let parsed = try XCTUnwrap(UPnPDescriptionParser.parse(Data(xml.utf8)))
+
+        XCTAssertEqual(parsed.friendlyName, "Living Room")
+        XCTAssertEqual(parsed.manufacturer, "Sonos, Inc.")
+        XCTAssertEqual(parsed.modelName, "Sonos One")
+        XCTAssertEqual(parsed.udn, "uuid:RINCON-000E58")
+    }
+
+    func testMalformedXMLIsRejected() {
+        XCTAssertNil(UPnPDescriptionParser.parse(Data("<root><device>".utf8)))
+    }
+}
+
+final class MatterFabricTests: XCTestCase {
+
+    private let builder = TopologyBuilder()
+
+    /// The whole point: counting distinct fabrics tells you how many parties
+    /// can control your devices.
+    func testGroupsDevicesByFabric() {
+        let topology = builder.build(.init(records: [
+            Fixture.record(.matter, name: "AAAAAAAAAAAAAAAA-0000000000000001",
+                           addresses: ["fd11:2233:4455:6677::1"], hostname: "a.local."),
+            Fixture.record(.matter, name: "AAAAAAAAAAAAAAAA-0000000000000002",
+                           addresses: ["fd11:2233:4455:6677::2"], hostname: "b.local."),
+            Fixture.record(.matter, name: "BBBBBBBBBBBBBBBB-0000000000000003",
+                           addresses: ["fd11:2233:4455:6677::3"], hostname: "c.local.")
+        ]))
+
+        let fabrics = topology.matterFabrics
+        XCTAssertEqual(fabrics.count, 2)
+        XCTAssertEqual(fabrics.first?.deviceCount, 2, "fabrics sort by device count")
+    }
+
+    /// A device commissioned into two ecosystems advertises one instance per
+    /// fabric, both resolving to the same host — which is how multi-admin
+    /// becomes visible at all.
+    func testDetectsMultiAdminDevice() throws {
+        let topology = builder.build(.init(records: [
+            Fixture.record(.matter, name: "AAAAAAAAAAAAAAAA-0000000000000001",
+                           addresses: ["fd11:2233:4455:6677::1"], hostname: "lock.local."),
+            Fixture.record(.matter, name: "BBBBBBBBBBBBBBBB-0000000000000001",
+                           addresses: ["fd11:2233:4455:6677::1"], hostname: "lock.local.")
+        ]))
+
+        XCTAssertEqual(topology.devices.count, 1, "same host means one device, two registrations")
+        let shared = try XCTUnwrap(topology.multiAdminDevices.first)
+        XCTAssertEqual(shared.fabricIDs, ["AAAAAAAAAAAAAAAA", "BBBBBBBBBBBBBBBB"])
+    }
+
+    func testSingleFabricIsNotFlaggedAsShared() {
+        let topology = builder.build(.init(records: [
+            Fixture.record(.matter, name: "AAAAAAAAAAAAAAAA-0000000000000001",
+                           addresses: ["fd11:2233:4455:6677::1"], hostname: "a.local.")
+        ]))
+        XCTAssertTrue(topology.multiAdminDevices.isEmpty)
+    }
+}

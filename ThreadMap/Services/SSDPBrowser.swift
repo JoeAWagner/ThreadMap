@@ -223,7 +223,9 @@ final class UPnPDescriptionParser: NSObject, XMLParserDelegate {
         var udn: String?
     }
 
-    private var description = Description()
+    /// Not named `description`: this subclasses NSObject, which already has a
+    /// `description: String`, and shadowing it is a compile error.
+    private var result = Description()
     private var currentElement = ""
     private var currentText = ""
     private var deviceDepth = 0
@@ -233,7 +235,7 @@ final class UPnPDescriptionParser: NSObject, XMLParserDelegate {
         let parser = XMLParser(data: data)
         parser.delegate = delegate
         guard parser.parse() else { return nil }
-        return delegate.description
+        return delegate.result
     }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String,
@@ -260,13 +262,13 @@ final class UPnPDescriptionParser: NSObject, XMLParserDelegate {
         guard !value.isEmpty else { return }
 
         switch elementName {
-        case "friendlyName":  if description.friendlyName == nil { description.friendlyName = value }
-        case "manufacturer":  if description.manufacturer == nil { description.manufacturer = value }
-        case "modelName":     if description.modelName == nil { description.modelName = value }
-        case "modelNumber":   if description.modelNumber == nil { description.modelNumber = value }
-        case "serialNumber":  if description.serialNumber == nil { description.serialNumber = value }
-        case "deviceType":    if description.deviceType == nil { description.deviceType = value }
-        case "UDN":           if description.udn == nil { description.udn = value }
+        case "friendlyName":  if result.friendlyName == nil { result.friendlyName = value }
+        case "manufacturer":  if result.manufacturer == nil { result.manufacturer = value }
+        case "modelName":     if result.modelName == nil { result.modelName = value }
+        case "modelNumber":   if result.modelNumber == nil { result.modelNumber = value }
+        case "serialNumber":  if result.serialNumber == nil { result.serialNumber = value }
+        case "deviceType":    if result.deviceType == nil { result.deviceType = value }
+        case "UDN":           if result.udn == nil { result.udn = value }
         default: break
         }
     }

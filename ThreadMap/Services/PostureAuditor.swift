@@ -27,7 +27,83 @@ struct PostureAuditor {
         findings += leaderChurn(input.history)
         findings += missingDevices(input.ledger, topology: input.topology)
         findings += unreachableAccessories(input.topology)
+        findings += matterFabrics(input.topology)
+        findings += multiAdminDevices(input.topology)
+        findings += internetGateways(input.topology)
         return findings.ranked
+    }
+
+    // MARK: - Matter fabrics
+
+    /// How many parties can operate your Matter devices.
+    private func matterFabrics(_ topology: Topology) -> [Finding] {
+        let fabrics = topology.matterFabrics
+        guard !fabrics.isEmpty else { return [] }
+        let breakdown = fabrics.map { "\($0.displayName): \($0.deviceCount) device\($0.deviceCount == 1 ? "" : "s")" }
+
+        return [
+            Finding(
+                id: "exposure.matter-fabrics",
+                severity: fabrics.count > 1 ? .low : .info,
+                category: .exposure,
+                title: fabrics.count == 1
+                    ? "Your Matter devices are on one fabric"
+                    : "Your Matter devices span \(fabrics.count) fabrics",
+                detail: breakdown.joined(separator: ", ") + ".",
+                impact: fabrics.count > 1
+                    ? "A Matter fabric is an administrative domain, and whoever holds one has full control of every device on it. More than one fabric means more than one party can operate those devices. That's normal and intended if you deliberately added a second ecosystem — and worth investigating if you didn't."
+                    : nil,
+                remediation: fabrics.count > 1
+                    ? "If a fabric here isn't one you set up, remove the device from that ecosystem's app, or factory-reset and re-commission it."
+                    : nil,
+                subjects: fabrics.map(\.displayName),
+                evidence: "Compressed fabric IDs from the _matter._tcp instance names."
+            )
+        ]
+    }
+
+    /// A single device controlled by several ecosystems at once.
+    private func multiAdminDevices(_ topology: Topology) -> [Finding] {
+        let shared = topology.multiAdminDevices
+        guard !shared.isEmpty else { return [] }
+        let described = shared.map { "\($0.device.displayName) (\($0.fabricIDs.count) fabrics)" }
+
+        return [
+            Finding(
+                id: "exposure.multi-admin",
+                severity: .low,
+                category: .exposure,
+                title: "\(shared.count) device\(shared.count == 1 ? " is" : "s are") shared across ecosystems",
+                detail: described.joined(separator: ", ") + ".",
+                impact: "Each fabric a device belongs to is a separate controller with full authority over it — it can read state, actuate it, and remove it. Matter is designed to allow this, and it's how you use one lock from both Apple Home and Google Home. It also means revoking one ecosystem's access doesn't revoke another's.",
+                remediation: "Review the shared devices in each ecosystem's app and remove any pairing you don't use.",
+                subjects: shared.map(\.device.displayName),
+                evidence: "Several _matter._tcp instance names with different compressed fabric IDs resolving to the same host."
+            )
+        ]
+    }
+
+    // MARK: - UPnP
+
+    /// A router advertising UPnP port mapping will let any device on the LAN
+    /// open an inbound hole in your firewall without telling you.
+    private func internetGateways(_ topology: Topology) -> [Finding] {
+        let gateways = topology.upnpDevices.filter(\.isInternetGateway)
+        guard !gateways.isEmpty else { return [] }
+
+        return [
+            Finding(
+                id: "exposure.upnp-igd",
+                severity: .medium,
+                category: .exposure,
+                title: "UPnP port mapping is advertised on your network",
+                detail: "\(gateways.map(\.displayName).joined(separator: ", ")) advertise an Internet Gateway Device service.",
+                impact: "Any device on your network can ask a UPnP gateway to forward an inbound port from the internet to itself, with no prompt and no log you'd normally see. It's convenient for games and consoles and it's also how a compromised device exposes itself to the outside world.",
+                remediation: "If nothing you own needs automatic port forwarding, turn UPnP off in your router's settings and forward ports manually.",
+                subjects: gateways.map(\.displayName),
+                evidence: "SSDP search target contains InternetGatewayDevice."
+            )
+        ]
     }
 
     // MARK: - Exposure

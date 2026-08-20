@@ -12,6 +12,7 @@ final class ScannerModel {
         case browsing
         case enumeratingServiceTypes
         case probingProxies
+        case searchingUPnP
         case readingThreadCredentials
         case readingHomeKit
         case correlating
@@ -23,6 +24,7 @@ final class ScannerModel {
             case .browsing:                 "Listening for Thread border routers…"
             case .enumeratingServiceTypes:  "Asking what else is on this network…"
             case .probingProxies:           "Finding out which router answers for each device…"
+            case .searchingUPnP:            "Searching for UPnP devices…"
             case .readingThreadCredentials: "Reading stored Thread networks…"
             case .readingHomeKit:           "Reading your HomeKit homes…"
             case .correlating:              "Matching devices to networks…"
@@ -62,6 +64,9 @@ final class ScannerModel {
     /// it's separately switchable and fails soft.
     var proxyProbeEnabled = true
     var serviceTypeEnumerationEnabled = true
+    /// SSDP is a separate discovery plane from mDNS, and a lot of consumer
+    /// hardware only appears there.
+    var ssdpEnabled = true
 
     // MARK: - Collaborators
 
@@ -73,6 +78,7 @@ final class ScannerModel {
     private let differ = TopologyDiffer()
     private let prober = MulticastProber()
     private let typeEnumerator = ServiceTypeEnumerator()
+    private let ssdp = SSDPBrowser()
     private let history = ScanHistoryStore()
     private var scanTask: Task<Void, Never>?
 
@@ -146,6 +152,18 @@ final class ScannerModel {
         }
         guard !Task.isCancelled else { return finish(.idle) }
 
+        // 3b. SSDP/UPnP — a different protocol on a different multicast group,
+        // and the only place a lot of consumer hardware announces itself.
+        var upnp = SSDPBrowser.Discovery()
+        if ssdpEnabled {
+            phase = .searchingUPnP
+            upnp = await ssdp.discover()
+            if let reason = upnp.failureReason {
+                notices.append(Notice(severity: .info, title: "UPnP search unavailable", detail: reason))
+            }
+        }
+        guard !Task.isCancelled else { return finish(.idle) }
+
         // 4. Stored Thread networks, for naming.
         phase = .readingThreadCredentials
         var knownNetworks: [ThreadCredentialsService.KnownNetwork] = []
@@ -181,7 +199,8 @@ final class ScannerModel {
                 accessories: accessories,
                 proxyAttribution: attribution.responders,
                 proxyProbeNote: attribution.failureReason,
-                advertisedServiceTypes: advertisedTypes
+                advertisedServiceTypes: advertisedTypes,
+                upnpDevices: upnp.devices
             )
         )
 
@@ -252,6 +271,23 @@ final class ScannerModel {
                 Notice(severity: .info,
                        title: "\(attributed) device\(attributed == 1 ? "" : "s") attributed to a border router",
                        detail: "A border router answered mDNS on their behalf, so it holds their service registration. That is not the same as being their mesh parent — iOS exposes no API for mesh parentage — but it is a real, observed device-to-router link.")
+            )
+        }
+
+        let fabrics = topology.matterFabrics
+        if fabrics.count > 1 {
+            notices.append(
+                Notice(severity: .info,
+                       title: "Matter devices span \(fabrics.count) fabrics",
+                       detail: "Each fabric is a separate party with full control of the devices on it. See Health › Findings for the breakdown.")
+            )
+        }
+
+        if !topology.upnpDevices.isEmpty {
+            notices.append(
+                Notice(severity: .info,
+                       title: "\(topology.upnpDevices.count) UPnP device\(topology.upnpDevices.count == 1 ? "" : "s") found",
+                       detail: "These announce over SSDP rather than mDNS — a separate protocol that Bonjour-only scanners never see.")
             )
         }
 

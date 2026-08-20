@@ -143,6 +143,12 @@ struct ScanSettingsView: View {
                 } footer: {
                     Text("Asks the network what service types are advertised, including ones this app doesn't inspect. Useful for spotting something you didn't put there.")
                 }
+
+                Section {
+                    Toggle("Search for UPnP devices", isOn: $model.ssdpEnabled)
+                } footer: {
+                    Text("SSDP is a different protocol from Bonjour, on a different multicast group. Sonos, Roku, Wemo, smart TVs and printers often announce only there. Also needs the multicast entitlement.")
+                }
             }
             .navigationTitle("Scan settings")
             .navigationBarTitleDisplayMode(.inline)
