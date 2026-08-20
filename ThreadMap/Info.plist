@@ -43,6 +43,24 @@
 		<string>_matterc._udp</string>
 		<string>_hap._udp</string>
 		<string>_hap._tcp</string>
+
+		<!-- Context types. These reveal nothing about Thread, but they're
+		     published by the same hardware and carry the names people
+		     recognise — an Apple TV's AirPlay name against its anonymous
+		     MeshCoP record, for instance. -->
+		<string>_device-info._tcp</string>
+		<string>_airplay._tcp</string>
+		<string>_raop._tcp</string>
+		<string>_companion-link._tcp</string>
+		<string>_googlecast._tcp</string>
+		<string>_homekit._tcp</string>
+		<string>_hue._tcp</string>
+		<string>_esphomelib._tcp</string>
+
+		<!-- The DNS-SD meta-query, which enumerates the service types in use
+		     rather than instances of a type. Without it the app can only find
+		     what it already knew to look for. -->
+		<string>_services._dns-sd._udp</string>
 	</array>
 
 	<key>NSHomeKitUsageDescription</key>

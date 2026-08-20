@@ -20,15 +20,41 @@ enum ServiceType: String, CaseIterable, Codable, Sendable {
     /// HomeKit accessory over Wi-Fi/Ethernet (HAP-over-IP/TCP).
     case hapIP       = "_hap._tcp"
 
+    // MARK: Context types
+    //
+    // These say nothing about Thread, but they're published by the same hosts
+    // and carry the names people actually recognise. A MeshCoP record might
+    // identify a border router only as `1A2B3C4D`; an AirPlay record on the
+    // same host says "Living Room Apple TV".
+
+    /// Apple's model/OS record — the best single source of "what is this box".
+    case deviceInfo    = "_device-info._tcp"
+    case airplay       = "_airplay._tcp"
+    case raop          = "_raop._tcp"
+    case companionLink = "_companion-link._tcp"
+    /// Google/Nest hubs, many of which are also Thread border routers.
+    case googlecast    = "_googlecast._tcp"
+    case homeKitSetup  = "_homekit._tcp"
+    case hue           = "_hue._tcp"
+    case esphome       = "_esphomelib._tcp"
+
     var displayName: String {
         switch self {
-        case .meshcop:   "Thread Border Agent"
-        case .meshcopE:  "Border Agent (ePSKc)"
-        case .trel:      "Thread Radio Link"
-        case .matter:    "Matter node"
-        case .matterC:   "Matter (commissionable)"
-        case .hapThread: "HomeKit over Thread"
-        case .hapIP:     "HomeKit over IP"
+        case .meshcop:       "Thread Border Agent"
+        case .meshcopE:      "Border Agent (ePSKc)"
+        case .trel:          "Thread Radio Link"
+        case .matter:        "Matter node"
+        case .matterC:       "Matter (commissionable)"
+        case .hapThread:     "HomeKit over Thread"
+        case .hapIP:         "HomeKit over IP"
+        case .deviceInfo:    "Device info"
+        case .airplay:       "AirPlay"
+        case .raop:          "AirPlay audio"
+        case .companionLink: "Apple companion link"
+        case .googlecast:    "Google Cast"
+        case .homeKitSetup:  "HomeKit setup"
+        case .hue:           "Philips Hue bridge"
+        case .esphome:       "ESPHome"
         }
     }
 
@@ -36,10 +62,15 @@ enum ServiceType: String, CaseIterable, Codable, Sendable {
     static var borderRouterTypes: [ServiceType] { [.meshcop, .meshcopE, .trel] }
     /// Types that indicate an end device we want on the map.
     static var deviceTypes: [ServiceType] { [.matter, .matterC, .hapThread, .hapIP] }
+    /// Types used only to put a human-readable name on hardware we found some
+    /// other way. They never create a node on the map by themselves.
+    static var contextTypes: [ServiceType] {
+        [.deviceInfo, .airplay, .raop, .companionLink, .googlecast, .homeKitSetup, .hue, .esphome]
+    }
 }
 
 /// One resolved mDNS service instance, straight off the wire.
-struct ServiceRecord: Identifiable, Hashable, Sendable {
+struct ServiceRecord: Identifiable, Hashable, Codable, Sendable {
     var id: String { "\(type.rawValue)|\(instanceName)" }
 
     let type: ServiceType

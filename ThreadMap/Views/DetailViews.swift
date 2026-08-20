@@ -112,6 +112,10 @@ struct RouterDetailView: View {
                 LabeledContent("Advertised name", value: router.displayName)
                 if let vendor = router.vendorName { LabeledContent("Vendor", value: vendor) }
                 if let model = router.modelName { LabeledContent("Model", value: model) }
+                if let model = router.deviceInfoModel { LabeledContent("Hardware model", value: model) }
+                if !router.alternateNames.isEmpty {
+                    LabeledContent("Also advertises as", value: router.alternateNames.joined(separator: ", "))
+                }
                 if let accessory = topology.accessory(router.homeKitAccessoryID) {
                     LabeledContent("HomeKit", value: accessory.name)
                     if let room = accessory.roomName { LabeledContent("Room", value: room) }
@@ -221,6 +225,27 @@ struct DeviceDetailView: View {
                 Text("Anything marked Inferred is a best guess from indirect evidence, not something the network stated.")
             }
 
+            if !device.proxiedBy.isEmpty {
+                let proxies = topology.borderRouters.filter { device.proxiedBy.contains($0.id) }
+                Section {
+                    ForEach(proxies) { router in
+                        NavigationLink {
+                            RouterDetailView(router: router, topology: topology)
+                        } label: {
+                            RouterRow(router: router, topology: topology)
+                        }
+                    }
+                } header: {
+                    Text("Answers for this device")
+                } footer: {
+                    Text((device.proxyEvidence ?? "") + "\n\nThis is a registration relationship, not a radio link: it means the router holds this device's service registration, not that the device is its mesh child. iOS exposes no API for mesh parentage.")
+                }
+            } else if let evidence = device.proxyEvidence {
+                Section("Answers for this device") {
+                    Text(evidence).font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+
             if let networkID = device.networkID.value,
                let network = topology.network(networkID) {
                 let routers = topology.borderRouters(on: networkID)
@@ -235,7 +260,7 @@ struct DeviceDetailView: View {
                 } header: {
                     Text("Routers serving \(network.displayName)")
                 } footer: {
-                    Text("This device reaches the rest of your home through one of these — but iOS gives no app a way to see which one, or how strong the link is. Any app claiming otherwise is guessing.")
+                    Text("Any of these could be carrying this device's traffic. Which one is its mesh parent, and how strong that link is, are not exposed to any iOS app.")
                 }
             }
 

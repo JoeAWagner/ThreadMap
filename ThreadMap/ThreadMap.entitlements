@@ -12,5 +12,15 @@
 	     still works, networks just show up as "Thread network 1A2B…". -->
 	<key>com.apple.developer.networking.manage-thread-network-credentials</key>
 	<true/>
+
+	<!-- Needed to send mDNS queries directly and see which host answers, which
+	     is how a device is attributed to the border router proxying it.
+	     Ordinary Bonjour browsing does NOT need this — only the raw multicast
+	     socket does. Apple grants it on request
+	     (developer.apple.com/contact/request/networking-multicast).
+	     Without it, "Attribute devices to routers" fails soft and the rest of
+	     the app is unaffected. -->
+	<key>com.apple.developer.networking.multicast</key>
+	<true/>
 </dict>
 </plist>

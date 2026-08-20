@@ -3,7 +3,7 @@ import Foundation
 /// Decoded HomeKit Accessory Protocol advertisement. `_hap._udp` means the
 /// accessory speaks HAP over CoAP, which is only used on Thread — so seeing an
 /// accessory here is direct evidence of Thread membership, no inference needed.
-struct HAPRecord: Hashable {
+struct HAPRecord: Hashable, Codable, Sendable {
     /// The accessory's HAP device ID, formatted like a MAC address.
     var deviceID: String?
     var model: String?

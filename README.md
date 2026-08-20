@@ -38,12 +38,30 @@ draws you a line from a light bulb to a specific HomePod, it made that line up.
 | `_trel._udp` mDNS | Routers that support Thread Radio Encapsulation Link |
 | `ThreadNetwork.framework` | Names, channels and PAN IDs of Thread networks stored on *this iPhone* |
 | `HomeKit.framework` | Your homes, rooms, accessory names, manufacturers, models, reachability, and — for Matter accessories — the `matterNodeID` |
+| `_services._dns-sd._udp` meta-query | Every service *type* advertised on the link, including ones this app doesn't inspect — so you find things you didn't know to look for |
+| Raw mDNS via `NWConnectionGroup` | Which host answers a query for a given device, identifying the border router that holds its service registration |
+| HomeKit characteristic notifications | A live, timestamped log of every state change in the home |
 
 Thread devices show up on Wi-Fi at all because border routers run an SRP server
 plus an *advertising proxy*: devices register their services with the border
 router over Thread, and the border router republishes them as mDNS on the
 infrastructure link. That indirection is exactly why you can enumerate the
 devices and exactly why you can't see the links between them.
+
+### One real device-to-router link
+
+There is one exception to "no device-to-router edges", and it's worth being
+precise about. A Thread device has no radio on your Wi-Fi, so it cannot answer
+an mDNS query itself — its records are republished by the *advertising proxy*
+on the border router it registered with over SRP. Send the query yourself and
+watch the source address of the reply, and you learn which border router holds
+that device's registration.
+
+That is a genuine, observed device-to-router relationship. It is **not** the
+device's mesh parent — a device can register with one router and route its
+traffic through another — but it's the strongest link obtainable without
+joining the mesh, and the app labels it as exactly what it is wherever it
+appears.
 
 ### So what does the map actually show?
 
@@ -67,6 +85,46 @@ A device is placed on a network by one of three rules, strongest first:
 Tap any device and the detail sheet tells you which rule fired and why, in
 words. Inferred edges are drawn dashed. That honesty is the point of the app —
 a map that silently guesses is worse than no map.
+
+---
+
+## What it tells you
+
+**Map** — networks, their border routers, their devices. Pinch, pan, tap.
+
+**Devices** — the same thing as a searchable list, grouped by network.
+
+**Health** — three views, and where most of the value is:
+
+- *Findings*: posture rules over the advertisements themselves. Accessories
+  broadcasting that they've never been paired (anyone in range can claim them);
+  Matter devices left in commissioning mode; border routers advertising that
+  they'll accept a commissioner; a Thread network that has **split into
+  partitions**, which makes automations fail silently while every device still
+  looks online; a network running on a single border router; a leader role
+  that keeps moving, which is the usual cause of Thread devices that drop out
+  for no visible reason. Each finding says what was seen, why it matters, what
+  to do, and the exact TXT key it came from.
+- *Changes*: what moved since the previous scan. Devices that appeared or
+  stopped answering, accessories whose HAP config number bumped (almost always
+  a firmware update), partition and leader changes, room and firmware edits.
+- *Timeline*: every device ever seen, with first-seen and last-seen. This is
+  what makes "it stopped working sometime last week" an answerable question.
+
+**Activity** — a live log of HomeKit state changes: which door opened, which
+light changed, when, in what order. Sensor telemetry is filtered out by default
+so a few thermometers don't bury everything else.
+
+**Diagnostics** — raw records, every service type found on the link, and the
+scope note. Everything the app claims is derived from what's on this screen.
+
+### Scan depth is a real setting
+
+Battery-powered Thread devices wake only every few seconds. A short browse
+window will miss them and then report them as *gone* — so the browse window is
+exposed in scan settings, and the differ explicitly says when a disappearance
+followed a shorter scan than the one before it. Use 10 seconds or more before
+trusting an absence.
 
 ---
 
@@ -117,6 +175,7 @@ Neither affects anything but network *naming* — see the entitlement note below
 |---|---|---|
 | `com.apple.developer.homekit` | Accessory names, rooms, `matterNodeID` | Devices appear as bare Matter node IDs and hostnames; everything else works |
 | `com.apple.developer.networking.manage-thread-network-credentials` | Reading stored Thread networks | Networks show as `Thread network 1A2B…` instead of `My Home`; **all** router and device discovery still works |
+| `com.apple.developer.networking.multicast` | Sending mDNS queries directly, to attribute devices to the router proxying them | The attribution probe fails soft and says so; everything else is unaffected |
 
 The Thread credentials entitlement is granted by Apple on request via the
 [Thread network credentials request form][thread-form]. **The app is built to
@@ -125,9 +184,13 @@ to a clearly-labelled reduced mode rather than failing. It also offers
 `retrievePreferredCredentials()`, which shows a system picker and needs no bulk
 entitlement, as a fallback path.
 
-You do **not** need the multicast entitlement
-(`com.apple.developer.networking.multicast`). That one is for raw multicast
-sockets; Bonjour browsing via `NWBrowser` and `dnssd` doesn't require it.
+Note that ordinary Bonjour browsing does **not** need the multicast
+entitlement — `NWBrowser` and `dnssd` work without it. Only the raw mDNS probe
+used for proxy attribution does, and it's a separate toggle in scan settings
+that turns itself off cleanly when the entitlement isn't there. Request it at
+the [multicast networking form][multicast-form].
+
+[multicast-form]: https://developer.apple.com/contact/request/networking-multicast
 
 [thread-form]: https://developer.apple.com/contact/request/thread-network
 
@@ -150,22 +213,33 @@ a type there whenever you add one to `ServiceType`.
 Model/
   Confidence.swift      Attributed<T> — a value plus how we know it
   IPv6Prefix.swift      IPAddress, IPv6Prefix, OMR prefix containment
-  ServiceRecord.swift   ServiceType (the seven types we browse), raw mDNS record
+  ServiceRecord.swift   ServiceType (Thread + context types), raw mDNS record
   MeshcopRecord.swift   Thread border agent TXT decoding, incl. the sb bitmap
   MatterRecord.swift    Matter operational + commissionable TXT decoding
   HAPRecord.swift       HomeKit accessory TXT decoding, category table
   Topology.swift        ThreadNetwork / BorderRouter / MeshDevice / HomeKitAccessory
+  Finding.swift         a posture finding: severity, impact, remediation, evidence
+  ScanSnapshot.swift    one scan, frozen, for history
+  DeviceLedger.swift    first-seen / last-seen for every device ever seen
+  TopologyChange.swift  change kinds + TopologyDiffer
+  HomeEvent.swift       one HomeKit characteristic change
 
 Services/
-  BonjourScanner.swift          NWBrowser across all seven service types
+  BonjourScanner.swift          NWBrowser across every declared service type
   DNSSDResolver.swift           dnssd resolve + address enumeration
+  ServiceTypeEnumerator.swift   the _services._dns-sd._udp meta-query
+  DNSMessage.swift              minimal DNS wire format: build a query, read answers
+  MulticastProber.swift         raw mDNS, capturing who answered
   IPAddressParser.swift         sockaddr ↔ IPAddress
   ThreadCredentialsService.swift THClient wrapper (non-secret fields only)
   HomeKitService.swift          HMHomeManager wrapper
+  HomeKitEventLog.swift         characteristic notifications → event log
   TopologyBuilder.swift         the correlation engine
+  PostureAuditor.swift          the finding rules
+  ScanHistoryStore.swift        snapshot + ledger persistence
 
 ViewModel/ScannerModel.swift    scan orchestration, phases, notices
-Views/                          map canvas, layout, inventory, detail, diagnostics
+Views/                          map canvas, layout, inventory, health, activity, diagnostics
 ```
 
 Two implementation notes worth knowing:
@@ -181,6 +255,18 @@ typically has three: link-local, mesh-local, and OMR.
 **Why the layout is rings and not a force simulation.** A force-directed graph
 re-shuffles on every scan, which makes "did that sensor move?" unanswerable.
 Concentric rings keep a device in the same place run to run.
+
+**Why there's a hand-rolled DNS parser.** Both `NWBrowser` and `dnssd` hide the
+responder's address, which is the one thing proxy attribution needs. For that
+one job the app speaks the protocol directly: `DNSMessage` builds a PTR query
+and reads names, compression pointers included, and skips everything else. It
+caps pointer-following so a malformed or hostile packet can't spin it.
+
+**Why devices have a `stableKey`.** A device's mDNS instance name changes when
+it's renamed or when Bonjour re-disambiguates a collision, so history keyed on
+it would show phantom disappearances. `stableKey` prefers identifiers burned
+into the device — HAP device ID, then Matter node ID — and falls back to the
+hostname.
 
 ### Correlating mDNS with HomeKit
 
@@ -211,17 +297,33 @@ section in the inventory, rather than being quietly dropped.
 
 ## Where you could take it next
 
-- **Partition-split detection.** Two routers sharing an extended PAN ID but
-  reporting different partition IDs means the mesh has split. The data is
-  already parsed and shown per-router; flagging it on the map would be a genuinely
-  useful diagnostic that nothing else surfaces.
-- **Change tracking.** Persist each scan and diff them — "this sensor stopped
-  answering three days ago" is the question people actually have.
-- **Which router proxied a device.** Answering this for real means sending raw
-  mDNS queries via `NWConnectionGroup` and recording the *source address* of
-  each response, which tells you which border router answered for a device.
-  It's the closest supported thing to a device→router edge. It needs the
-  multicast entitlement and careful handling of routers that all answer.
-- **Commissioning.** `MatterSupport` can add a device to a fabric; combined with
-  `retrievePreferredCredentials()` this could become a setup tool, not just a
-  viewer.
+The remaining visibility gap is the mesh itself, and both routes out of it live
+off the phone:
+
+- **Become a second Matter admin.** Matter's `ThreadNetworkDiagnostics` cluster
+  (0x0035) exposes `NeighborTable` and `RouteTable`, with per-neighbour `LQI`,
+  `AverageRssi`, and `IsChild`. That is the real topology, specified and
+  supported — it's just unreachable from iOS because Apple's fabric is closed
+  to third parties. Commission your devices into your own fabric as well
+  (`python-matter-server` or `chip-tool`) and poll it. Both table attributes
+  are optional and feature-gated, so expect uneven vendor coverage.
+- **Run your own border router.** A Pi plus an nRF52840 gives you `otbr-agent`
+  and a REST API with the full router, child, and neighbour tables. To see your
+  *existing* mesh rather than a new one it has to join with the active
+  operational dataset — the network key. If you add that, make it an explicit
+  user-initiated export with a real warning, not something the scanner does
+  quietly.
+- **802.15.4 sniffing.** The same dongle in sniffer mode feeds Wireshark, which
+  has Thread dissectors and will decrypt given the network key. RF-level truth:
+  retries, channel utilisation, which radios actually talk to each other.
+
+Smaller things still on the table:
+
+- **Notifications.** The findings and change engines already produce everything
+  a "your Thread network split" or "the back door sensor stopped answering"
+  alert would need; nothing surfaces them outside the app.
+- **Export.** Snapshots are already Codable JSON on disk. A share sheet would
+  make them diffable outside the app.
+- **Commissioning.** `MatterSupport` can add a device to a fabric; combined
+  with `retrievePreferredCredentials()` this could become a setup tool rather
+  than only a viewer.

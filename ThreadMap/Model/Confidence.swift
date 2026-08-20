@@ -5,7 +5,7 @@ import Foundation
 /// The whole point of this app is to never blur the line between something the
 /// network actually told us and something we guessed, so every inferred
 /// relationship carries one of these plus a human-readable reason.
-enum Confidence: Int, Comparable, Hashable, Codable {
+enum Confidence: Int, Comparable, Hashable, Codable, Sendable {
     /// Read directly out of a service record, TXT key, or system framework.
     case observed = 3
     /// Derived from an unambiguous join key (OMR prefix match, Matter node ID).
@@ -49,3 +49,6 @@ struct Attributed<Value>: Hashable where Value: Hashable {
         self.reason = reason
     }
 }
+
+extension Attributed: Codable where Value: Codable {}
+extension Attributed: Sendable where Value: Sendable {}

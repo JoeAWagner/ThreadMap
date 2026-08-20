@@ -2,7 +2,7 @@ import Foundation
 
 /// A Thread network, identified by its extended PAN ID. Everything else —
 /// border routers, devices, credentials — hangs off one of these.
-struct ThreadNetwork: Identifiable, Hashable {
+struct ThreadNetwork: Identifiable, Hashable, Codable, Sendable {
     /// Extended PAN ID as 16 uppercase hex characters, or a synthetic ID when
     /// we know a network exists but never learned its XPAN.
     let id: String
@@ -30,7 +30,7 @@ struct ThreadNetwork: Identifiable, Hashable {
 
 /// A Thread Border Router: an Apple TV, HomePod, Nest/Echo hub, eero, or an
 /// OpenThread box. Discovered purely from its own MeshCoP advertisement.
-struct BorderRouter: Identifiable, Hashable {
+struct BorderRouter: Identifiable, Hashable, Codable, Sendable {
     /// Border agent ID when present, otherwise the service instance name.
     let id: String
     var displayName: String
@@ -45,6 +45,12 @@ struct BorderRouter: Identifiable, Hashable {
     var lastSeen: Date = .now
     /// The HomeKit accessory we believe this hardware corresponds to, if any.
     var homeKitAccessoryID: UUID?
+    /// Names this host publishes under other service types — an Apple TV's
+    /// AirPlay name, a Nest hub's Cast name. A MeshCoP record alone often can't
+    /// tell you which box in the house you're looking at; this can.
+    var alternateNames: [String] = []
+    /// Model string from a co-located `_device-info._tcp` record.
+    var deviceInfoModel: String?
 
     var isLeader: Bool { meshcop?.threadRole == .leader }
     var isPrimaryBackboneRouter: Bool { meshcop?.isPrimaryBackboneRouter == true }
@@ -58,8 +64,8 @@ struct BorderRouter: Identifiable, Hashable {
 }
 
 /// Anything on the map that isn't a border router: a bulb, lock, sensor, plug.
-struct MeshDevice: Identifiable, Hashable {
-    enum Transport: Hashable {
+struct MeshDevice: Identifiable, Hashable, Codable, Sendable {
+    enum Transport: String, Hashable, Codable, Sendable {
         case thread, wifiOrEthernet, unknown
 
         var label: String {
@@ -77,12 +83,21 @@ struct MeshDevice: Identifiable, Hashable {
     /// Which Thread network we believe it sits on, and why.
     var networkID: Attributed<String?>
     var protocols: Set<ServiceType> = []
+    /// The mDNS instance names this device advertises under. Kept because
+    /// `displayName` gets overwritten with the friendlier HomeKit name, and
+    /// proxy attribution has to match on what was actually on the wire.
+    var instanceNames: [String] = []
     var addresses: [IPAddress] = []
     var hostname: String?
     var matter: MatterRecord?
     var hap: HAPRecord?
     var homeKitAccessoryID: UUID?
     var lastSeen: Date = .now
+    /// Border routers observed answering mDNS queries on this device's behalf.
+    /// A Thread device can't answer for itself on Wi-Fi, so whoever did is
+    /// running the advertising proxy it registered with.
+    var proxiedBy: [String] = []
+    var proxyEvidence: String?
 
     var isSleepy: Bool { matter?.looksSleepy ?? false }
     var isOnThread: Bool { transport.value == .thread }
@@ -92,13 +107,26 @@ struct MeshDevice: Identifiable, Hashable {
         if let name = matter?.deviceName, !name.isEmpty { return name }
         return "Device"
     }
+
+    /// Identity that survives across scans.
+    ///
+    /// `id` is derived from the mDNS instance name, which changes whenever an
+    /// accessory renames itself or Bonjour re-disambiguates a collision. For
+    /// history and diffing we need something stabler, so prefer identifiers
+    /// burned into the device: its HAP device ID, then its Matter node ID.
+    var stableKey: String {
+        if let deviceID = hap?.deviceID, !deviceID.isEmpty { return "hap:\(deviceID)" }
+        if let node = matter?.nodeIDHex, !node.isEmpty { return "matter:\(node)" }
+        if let hostname, !hostname.isEmpty { return "host:\(hostname)" }
+        return "instance:\(id)"
+    }
 }
 
 /// A HomeKit accessory as HomeKit itself sees it. Kept separate from
 /// `MeshDevice` because HomeKit knows names and rooms but nothing about radios,
 /// while mDNS knows radios but not names — the join between them is the app's
 /// main job.
-struct HomeKitAccessory: Identifiable, Hashable {
+struct HomeKitAccessory: Identifiable, Hashable, Codable, Sendable {
     let id: UUID
     var name: String
     var homeName: String
@@ -116,13 +144,18 @@ struct HomeKitAccessory: Identifiable, Hashable {
 }
 
 /// The whole picture, rebuilt from scratch after every scan pass.
-struct Topology: Hashable {
+struct Topology: Hashable, Codable, Sendable {
     var networks: [ThreadNetwork] = []
     var borderRouters: [BorderRouter] = []
     var devices: [MeshDevice] = []
     var accessories: [HomeKitAccessory] = []
     /// Service records we saw but could not place, kept for the raw view.
     var unmatchedRecords: [ServiceRecord] = []
+    /// Every service type the DNS-SD meta-query found on the link, including
+    /// ones this app doesn't inspect.
+    var advertisedServiceTypes: [String] = []
+    /// Why proxy attribution produced nothing, when it produced nothing.
+    var proxyProbeNote: String?
     var generatedAt: Date = .now
 
     func network(_ id: String?) -> ThreadNetwork? {

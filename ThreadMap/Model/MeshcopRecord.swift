@@ -11,9 +11,9 @@ import Foundation
 ///   vn  vendor name                    mn  model name
 ///   dn  Thread domain name             sq  BBR sequence number
 ///   bb  BBR port                       omr off-mesh-routable prefix
-struct MeshcopRecord: Hashable {
+struct MeshcopRecord: Hashable, Codable, Sendable {
     /// Border agent connection mode — how a commissioner may attach.
-    enum ConnectionMode: UInt32, Hashable {
+    enum ConnectionMode: UInt32, Hashable, Codable, Sendable {
         case disallowed = 0, pskc = 1, pskd = 2, vendor = 3, x509 = 4
 
         var label: String {
@@ -28,7 +28,7 @@ struct MeshcopRecord: Hashable {
     }
 
     /// Whether the border router's own Thread interface is up.
-    enum InterfaceStatus: UInt32, Hashable {
+    enum InterfaceStatus: UInt32, Hashable, Codable, Sendable {
         case notInitialized = 0, initializedInactive = 1, active = 2
 
         var label: String {
@@ -41,14 +41,14 @@ struct MeshcopRecord: Hashable {
     }
 
     /// Whether this border router is willing to take on new work.
-    enum Availability: UInt32, Hashable {
+    enum Availability: UInt32, Hashable, Codable, Sendable {
         case infrequent = 0, high = 1
 
         var label: String { self == .high ? "High" : "Infrequent" }
     }
 
     /// Thread 1.4 added the device's mesh role to the state bitmap.
-    enum ThreadRole: UInt32, Hashable {
+    enum ThreadRole: UInt32, Hashable, Codable, Sendable {
         case disabledOrDetached = 0, child = 1, router = 2, leader = 3
 
         var label: String {

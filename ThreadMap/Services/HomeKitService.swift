@@ -73,6 +73,16 @@ final class HomeKitService {
         return (result, authorization)
     }
 
+    /// The loaded manager, for callers that need live HomeKit objects rather
+    /// than our flattened snapshot — the event log subscribing to
+    /// characteristics, for instance. Reuses the same instance so the user is
+    /// only ever prompted once.
+    func loadedManager() async -> HMHomeManager {
+        let manager = ensureManager()
+        await waitForInitialLoad()
+        return manager
+    }
+
     // MARK: - Plumbing
 
     private func ensureManager() -> HMHomeManager {

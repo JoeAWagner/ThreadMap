@@ -14,13 +14,18 @@ struct TopologyBuilder {
         var records: [ServiceRecord] = []
         var knownNetworks: [ThreadCredentialsService.KnownNetwork] = []
         var accessories: [HomeKitAccessory] = []
+        /// Service instance name → addresses that answered mDNS for it.
+        var proxyAttribution: [String: Set<IPAddress>] = [:]
+        var proxyProbeNote: String?
+        /// Everything the DNS-SD meta-query saw advertised on the link.
+        var advertisedServiceTypes: Set<String> = []
     }
 
     func build(_ input: Input) -> Topology {
         var topology = Topology()
         topology.accessories = input.accessories
 
-        let (routerRecords, deviceRecords, leftovers) = partition(input.records)
+        let (routerRecords, deviceRecords, contextRecords, leftovers) = partition(input.records)
 
         var routers = buildBorderRouters(from: routerRecords)
         var networks = buildNetworks(routers: routers, known: input.knownNetworks)
@@ -35,6 +40,8 @@ struct TopologyBuilder {
         inferMissingOMRPrefixes(networks: &networks, devices: devices)
 
         assignNetworks(to: &devices, networks: networks)
+        enrichIdentities(routers: &routers, devices: &devices, contextRecords: contextRecords)
+        applyProxyAttribution(devices: &devices, routers: routers, attribution: input.proxyAttribution)
         correlateHomeKit(devices: &devices, routers: &routers, accessories: input.accessories)
         nameDevices(&devices, accessories: input.accessories)
 
@@ -49,22 +56,26 @@ struct TopologyBuilder {
         topology.borderRouters = routers.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         topology.devices = devices.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         topology.unmatchedRecords = leftovers
+        topology.advertisedServiceTypes = input.advertisedServiceTypes.sorted()
+        topology.proxyProbeNote = input.proxyProbeNote
         topology.generatedAt = .now
         return topology
     }
 
     // MARK: - Partitioning
 
-    private func partition(_ records: [ServiceRecord]) -> ([ServiceRecord], [ServiceRecord], [ServiceRecord]) {
+    private func partition(_ records: [ServiceRecord]) -> ([ServiceRecord], [ServiceRecord], [ServiceRecord], [ServiceRecord]) {
         var routers: [ServiceRecord] = []
         var devices: [ServiceRecord] = []
+        var context: [ServiceRecord] = []
         var others: [ServiceRecord] = []
         for record in records {
             if ServiceType.borderRouterTypes.contains(record.type) { routers.append(record) }
             else if ServiceType.deviceTypes.contains(record.type) { devices.append(record) }
+            else if ServiceType.contextTypes.contains(record.type) { context.append(record) }
             else { others.append(record) }
         }
-        return (routers, devices, others)
+        return (routers, devices, context, others)
     }
 
     // MARK: - Border routers
@@ -233,6 +244,9 @@ struct TopologyBuilder {
                 return !shared.isEmpty
             }) {
                 devices[index].protocols.insert(record.type)
+                if !devices[index].instanceNames.contains(record.instanceName) {
+                    devices[index].instanceNames.append(record.instanceName)
+                }
                 for address in record.addresses where !devices[index].addresses.contains(address) {
                     devices[index].addresses.append(address)
                 }
@@ -253,6 +267,7 @@ struct TopologyBuilder {
                     transport: transport,
                     networkID: Attributed(nil, .unknown, "Not yet assigned."),
                     protocols: [record.type],
+                    instanceNames: [record.instanceName],
                     addresses: record.addresses,
                     hostname: record.hostname,
                     matter: matter,
@@ -366,6 +381,110 @@ struct TopologyBuilder {
                     "No Thread network could be matched to this device."
                 )
             }
+        }
+    }
+
+    // MARK: - Identity enrichment
+
+    /// Borrows names from unrelated services published by the same host.
+    ///
+    /// A MeshCoP record often identifies a border router only as a hex blob or
+    /// a vendor string. The same box is usually also shouting an AirPlay or
+    /// Cast name that matches what's written on the shelf, so if the two share
+    /// a hostname or an address, we can put a real name on the map.
+    private func enrichIdentities(routers: inout [BorderRouter],
+                                  devices: inout [MeshDevice],
+                                  contextRecords: [ServiceRecord]) {
+        guard !contextRecords.isEmpty else { return }
+
+        for record in contextRecords {
+            let friendly = Self.friendlyName(from: record)
+
+            for index in routers.indices where Self.sameHost(routers[index].hostname, routers[index].addresses, record) {
+                if record.type == .deviceInfo, let model = record.txtString("model") {
+                    routers[index].deviceInfoModel = model
+                }
+                if let friendly, !routers[index].alternateNames.contains(friendly) {
+                    routers[index].alternateNames.append(friendly)
+                }
+            }
+
+            for index in devices.indices where Self.sameHost(devices[index].hostname, devices[index].addresses, record) {
+                guard let friendly else { continue }
+                // Only upgrade a name that's still a machine-generated one.
+                let current = devices[index].displayName
+                let looksLikeHex = current.count >= 16 && current.allSatisfy { $0.isHexDigit || $0 == "-" }
+                if looksLikeHex { devices[index].displayName = friendly }
+            }
+        }
+
+        // Promote a good alternate name over an unhelpful MeshCoP instance name.
+        for index in routers.indices {
+            let current = routers[index].displayName
+            let unhelpful = current.count >= 12 && current.allSatisfy { $0.isHexDigit || $0 == "-" }
+            if unhelpful, let better = routers[index].alternateNames.first {
+                routers[index].displayName = better
+            }
+        }
+    }
+
+    private static func friendlyName(from record: ServiceRecord) -> String? {
+        switch record.type {
+        case .googlecast:
+            return record.txtString("fn") ?? record.instanceName
+        case .airplay, .raop, .companionLink, .deviceInfo, .homeKitSetup, .hue, .esphome:
+            // AirPlay audio instances are `<MAC>@<Name>`; keep the readable half.
+            if record.type == .raop, let at = record.instanceName.firstIndex(of: "@") {
+                return String(record.instanceName[record.instanceName.index(after: at)...])
+            }
+            return record.instanceName
+        default:
+            return nil
+        }
+    }
+
+    private static func sameHost(_ hostname: String?, _ addresses: [IPAddress], _ record: ServiceRecord) -> Bool {
+        if let hostname, let other = record.hostname, hostname == other { return true }
+        let mine = Set(addresses.filter(\.isRoutable))
+        let theirs = Set(record.routableAddresses)
+        return !mine.isEmpty && !mine.isDisjoint(with: theirs)
+    }
+
+    // MARK: - Proxy attribution
+
+    /// Records which border router answered mDNS on a device's behalf.
+    ///
+    /// A Thread device has no radio on the Wi-Fi link, so it cannot answer for
+    /// itself. Whoever did is running the advertising proxy holding that
+    /// device's SRP registration. That's a real, observed relationship — but it
+    /// is *not* the device's mesh parent, and the UI says so wherever it
+    /// appears.
+    private func applyProxyAttribution(devices: inout [MeshDevice],
+                                       routers: [BorderRouter],
+                                       attribution: [String: Set<IPAddress>]) {
+        guard !attribution.isEmpty else { return }
+
+        for index in devices.indices {
+            var responders: Set<IPAddress> = []
+            for name in devices[index].instanceNames {
+                if let found = attribution[name] { responders.formUnion(found) }
+            }
+            guard !responders.isEmpty else { continue }
+
+            let matched = routers.filter { router in
+                !Set(router.addresses).isDisjoint(with: responders)
+            }
+
+            if matched.isEmpty {
+                devices[index].proxyEvidence = "Answered for by \(responders.map(\.text).sorted().joined(separator: ", ")), which doesn't match any border router we found."
+                continue
+            }
+
+            devices[index].proxiedBy = matched.map(\.id)
+            let names = matched.map(\.displayName).sorted()
+            devices[index].proxyEvidence = matched.count == 1
+                ? "\(names[0]) answered the mDNS query for this device, so it holds this device's service registration."
+                : "\(names.joined(separator: " and ")) both answered for this device, so more than one border router is proxying it."
         }
     }
 

@@ -39,12 +39,45 @@ struct DiagnosticsView: View {
                 Text("""
                 What this app can see: border routers announce themselves over Wi-Fi with a MeshCoP record naming their Thread network, and border routers republish their Thread devices' service records onto Wi-Fi. That's how devices appear here at all.
 
+                It can also see which border router answers mDNS for a given device, which identifies the router holding that device's service registration. That's a real device-to-router relationship, and the closest thing available — but it is not the device's mesh parent.
+
                 What no iOS app can see: the mesh links inside a Thread network — which device is a router or an end device, which parent it attached to, link quality, hop count, or the neighbour table. Those live inside the border router and Apple's private daemons, and there is no public API for them.
                 """)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             } header: {
                 Text("Scope")
+            }
+
+            if !topology.advertisedServiceTypes.isEmpty {
+                let unrecognised = ServiceTypeEnumerator.unrecognised(Set(topology.advertisedServiceTypes))
+                Section {
+                    ForEach(topology.advertisedServiceTypes, id: \.self) { type in
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                Text(type).font(.system(.footnote, design: .monospaced))
+                                if ServiceTypeEnumerator.isNoteworthy(type) {
+                                    Tag(text: "Remote access", color: .orange)
+                                } else if !unrecognised.contains(type) {
+                                    Tag(text: "Inspected", color: .green)
+                                }
+                            }
+                            if let note = ServiceTypeEnumerator.annotation(for: type) {
+                                Text(note).font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Service types on this network (\(topology.advertisedServiceTypes.count))")
+                } footer: {
+                    Text("Found by browsing _services._dns-sd._udp, the DNS-SD meta-query — it returns the service types in use rather than instances of a type you already guessed. \(unrecognised.count) of these aren't inspected by this app. Anything you don't recognise is worth chasing down.")
+                }
+            }
+
+            if let note = topology.proxyProbeNote {
+                Section("Proxy attribution") {
+                    Text(note).font(.footnote).foregroundStyle(.secondary)
+                }
             }
 
             if !topology.unmatchedRecords.isEmpty {

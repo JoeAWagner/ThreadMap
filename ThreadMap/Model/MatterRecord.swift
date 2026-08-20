@@ -2,10 +2,10 @@ import Foundation
 
 /// Decoded Matter mDNS advertisement, either operational (`_matter._tcp`) or
 /// commissionable (`_matterc._udp`).
-struct MatterRecord: Hashable {
+struct MatterRecord: Hashable, Codable, Sendable {
     /// Matter's own term for a sleepy device. LIT/SIT only exist for devices
     /// that duty-cycle their radio, which in practice means Thread.
-    enum ICDMode: UInt64, Hashable {
+    enum ICDMode: UInt64, Hashable, Codable, Sendable {
         case shortIdle = 0, longIdle = 1
         var label: String { self == .longIdle ? "Long Idle (LIT)" : "Short Idle (SIT)" }
     }
