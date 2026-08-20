@@ -158,7 +158,7 @@ struct PostureAuditor {
             return mode != .disallowed
         }
         guard !joinable.isEmpty else { return [] }
-        let modes = Set(joinable.compactMap { $0.meshcop?.connectionMode.label })
+        let modes = Set(joinable.compactMap { $0.meshcop?.connectionMode?.label })
         return [
             Finding(
                 id: "exposure.joinable-border-agent",

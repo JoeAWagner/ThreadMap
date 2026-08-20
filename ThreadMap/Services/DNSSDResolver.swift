@@ -41,7 +41,9 @@ final class DNSSDResolver: Sendable {
 
     // MARK: - SRV + TXT
 
-    private final class SRVBox {
+    /// Only ever mutated on `queue`, a serial dispatch queue, which is what
+    /// makes capturing it in the dnssd `@Sendable` callback safe.
+    private final class SRVBox: @unchecked Sendable {
         var hostname: String?
         var port: UInt16 = 0
         var txt: [String: Data] = [:]
@@ -102,7 +104,8 @@ final class DNSSDResolver: Sendable {
 
     // MARK: - Addresses
 
-    private final class AddrBox {
+    /// Serial-queue confined, as `SRVBox` is.
+    private final class AddrBox: @unchecked Sendable {
         var addresses: [IPAddress] = []
         var resumed = false
         var continuation: CheckedContinuation<Void, Never>?

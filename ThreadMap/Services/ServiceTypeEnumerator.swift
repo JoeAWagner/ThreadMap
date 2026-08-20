@@ -17,7 +17,8 @@ final class ServiceTypeEnumerator: Sendable {
 
     private let queue = DispatchQueue(label: "com.threadmap.metaquery", qos: .utility)
 
-    private final class Box {
+    /// Serial-queue confined; see `DNSSDResolver.SRVBox`.
+    private final class Box: @unchecked Sendable {
         var types: Set<String> = []
         var resumed = false
         var continuation: CheckedContinuation<Void, Never>?
