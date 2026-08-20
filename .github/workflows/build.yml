@@ -83,7 +83,7 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee test.log | grep -E "Test Case|error:|failed|passed|Executed" || true
-          grep -q "TEST SUCCEEDED\|** TEST SUCCEEDED **" test.log
+          grep -qF "TEST SUCCEEDED" test.log
 
       - name: Upload logs
         if: always()
