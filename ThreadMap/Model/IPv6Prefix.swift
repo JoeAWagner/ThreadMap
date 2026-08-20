@@ -85,7 +85,11 @@ struct IPv6Prefix: Hashable, Codable, Sendable, CustomStringConvertible {
         let remainderBits = length % 8
         for i in 0..<wholeBytes where address.bytes[i] != bytes[i] { return false }
         if remainderBits > 0 {
-            let mask = UInt8(0xFF << (8 - remainderBits))
+            // The type annotation matters: without it `0xFF` is an Int, so
+            // `0xFF << 4` is 4080 and the UInt8 conversion traps at runtime.
+            // Shifting within UInt8 discards the overflow bits, which is what
+            // a mask wants.
+            let mask: UInt8 = 0xFF << (8 - remainderBits)
             if (address.bytes[wholeBytes] & mask) != (bytes[wholeBytes] & mask) { return false }
         }
         return true
